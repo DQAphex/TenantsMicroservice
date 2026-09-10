@@ -4,9 +4,11 @@ import { count, asc, desc, eq, SQL } from 'drizzle-orm'
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { PaginationDto } from '../global/paginacion.dto';
+import { CreateMemberDataDTO } from './dto/create-member-data.dto';
 
 import { DRIZZLE } from '../database/database.provider';
-import { members } from '../database/schema/member.schema';
+import { members} from '../database/schema/member.schema';
+import { membersData } from 'src/database/schema/members-data.schema';
 import { Status,statusEnum } from '../database/schema/enums';
 
 @Injectable()
@@ -98,7 +100,29 @@ export class MembersService {
         .where(eq(members.memberId, id))
         .returning()
       const mesage = `Member con id ${id} eliminado correctamente`
-      const debug = {"Nuevo_estado": newStatus, "Estado_anterior": existe.status} 
+      const debug = {"Nuevo_mmit estado": newStatus, "Estado_anterior": existe.status} 
       return {mesage, data,debug};
+    }
+
+    async getMemberDataById(memberId: string) {
+      const [memberData] = await this.db
+        .select()
+        .from(membersData)
+        .where(eq(membersData.memberId, memberId));
+      
+      return memberData;
+    }
+
+    async createMemberData(createMemberDataDTO: CreateMemberDataDTO) {
+      const [memberData] = this.db
+        .insert(membersData)
+        .values({
+          memberId: createMemberDataDTO.memberId,
+          name: createMemberDataDTO.name,
+          lastname: createMemberDataDTO.lastname,
+          profilePicture: createMemberDataDTO.profilePicture,
+        })
+        .returning();
+      return memberData
     }
 }
