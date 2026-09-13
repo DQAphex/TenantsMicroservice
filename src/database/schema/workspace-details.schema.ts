@@ -14,7 +14,7 @@ export const workspaceDetails = pgTable('workspace_details', {
 
   workspaceId: uuid('workspace_id')
     .notNull(),
-
+  
   maxMemberLimitId: integer('max_member_limit_id'),
 
   capacity: integer('capacity')

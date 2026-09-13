@@ -1,4 +1,4 @@
-import { 
+import {
   Controller,
   Query,
   Get,
@@ -8,20 +8,21 @@ import {
   Param,
   Delete,
   ParseUUIDPipe,
-  Put
- } from '@nestjs/common';
+  Put,
+} from '@nestjs/common';
+
 import {
   ApiOperation,
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+
 import { MembersService } from './members.service';
 import { QueryMemberDto } from './dto/query_member.dto';
 import { CreateMemberDto } from './dto/create-member.dto';
-import { UpdateMemberDto } from './dto/update-member.dto';
 import { PaginationDto } from '../global/paginacion.dto';
-import { Status } from '../database/schema/enums';
-
+import { CreateMemberDataDTO } from './dto/create-member-data.dto';
+import { UpdateMemberDataDTO } from './dto/update-member-data.dto';
 
 @ApiTags('Members')
 @Controller('members')
@@ -46,13 +47,14 @@ export class MembersController {
   })
   @ApiQuery({
     name: 'limit',
-    required:true,
+    required: true,
     description: 'Cantidad de registros a mostrar por página.',
-    example:10,
-    })
+    example: 10,
+  })
   @ApiOperation({
     summary: 'Mostrar todos los members, con paginación',
-    description: 'Mostrar todos los members, sin filtros y ordenados por fecha de creación en orden descendente.',
+    description:
+      'Mostrar todos los members, sin filtros y ordenados por fecha de creación en orden descendente.',
   })
   async findAll(
     @Query() pagination: PaginationDto,
@@ -60,25 +62,64 @@ export class MembersController {
     return this.membersService.findAll(pagination);
   }
 
+  @Get('/data/:memberId')
+  @ApiOperation({
+    summary: 'Obtener datos de un miembro',
+    description: 'Obtiene los datos adicionales de un miembro específico utilizando su ID.',
+  })
+  async getMemberDataById(
+    @Param('memberId', new ParseUUIDPipe({ version: '4' }))
+    memberId: string,
+  ) {
+    return this.membersService.getMemberDataById(memberId);
+  }
+
+  @Post('/data/:memberId')
+  @ApiOperation({
+    summary: 'Crear datos de un miembro',
+    description: 'Crea los datos adicionales de un miembro específico utilizando su ID.',
+  })
+  async createMemberData(
+    @Param('memberId', new ParseUUIDPipe({ version: '4' }))
+    memberId: string,
+    @Body() createMemberDataDTO: CreateMemberDataDTO,
+  ) {
+    return this.membersService.createMemberData({
+      ...createMemberDataDTO,
+      memberId,
+    });
+  }
+
+  @Put('/data/:memberId')
+  @ApiOperation({
+    summary: 'Actualizar datos de un miembro',
+    description: 'Actualiza los datos adicionales de un miembro específico utilizando su ID.',
+  })
+  async updateMemberData(
+    @Param('memberId', new ParseUUIDPipe({ version: '4' }))
+    memberId: string,
+    @Body() updateMemberDataDTO: UpdateMemberDataDTO,
+  ) {
+    return this.membersService.updateMemberData(
+      memberId,
+      updateMemberDataDTO,
+    );
+  }
+
   @Get(':id')
-  findOne(@Param('id') id: string) {
+  findOne(
+    @Param('id', new ParseUUIDPipe({ version: '4' }))
+    id: string,
+  ) {
     return this.membersService.findOne(id);
   }
 
-  @Get()
-  query(
-    @Query() queryMemberDto: QueryMemberDto
-  ) {
-    return this.membersService.query(queryMemberDto.tenantId, queryMemberDto.status);
-  }
-
-  // @Patch(':id')
-  // update(@Param('id') id: string, @Body() updateMemberDto: UpdateMemberDto) {
-  //   return this.membersService.update(+id, updateMemberDto);
-  // }
-
   @Delete(':id')
-  remove(@Param('id') id: string) {
+  remove(
+    @Param('id', new ParseUUIDPipe({ version: '4' }))
+    id: string,
+  ) {
     return this.membersService.toggleStatus(id);
   }
 }
+

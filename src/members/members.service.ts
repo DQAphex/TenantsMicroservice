@@ -5,6 +5,7 @@ import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { PaginationDto } from '../global/paginacion.dto';
 import { CreateMemberDataDTO } from './dto/create-member-data.dto';
+import { UpdateMemberDataDTO } from './dto/update-member-data.dto';
 
 import { DRIZZLE } from '../database/database.provider';
 import { members} from '../database/schema/member.schema';
@@ -110,11 +111,28 @@ export class MembersService {
         .from(membersData)
         .where(eq(membersData.memberId, memberId));
       
-      return memberData;
+      const [member] = await this.db
+        .select()
+        .from(members)
+        .where(eq(members.memberId, memberId));
+      
+      const result = {
+        memberId: memberData?.memberId,
+        name: memberData?.name,
+        lastname: memberData?.lastname,
+        profilePicture: memberData?.profilePicture,
+        iamUserId: member?.iamUserId,
+        tenantId: member?.tenantId,
+        status: member?.status,
+      }
+        
+      console.log('Datos del miembro:', result);
+      return result;
     }
 
     async createMemberData(createMemberDataDTO: CreateMemberDataDTO) {
-      const [memberData] = this.db
+      console.log(createMemberDataDTO);
+      const memberData = this.db
         .insert(membersData)
         .values({
           memberId: createMemberDataDTO.memberId,
@@ -123,6 +141,24 @@ export class MembersService {
           profilePicture: createMemberDataDTO.profilePicture,
         })
         .returning();
+      console.log('Datos del miembro creados:', memberData);
       return memberData
     }
+
+    async updateMemberData(memberId,updateMemberDataDTO: UpdateMemberDataDTO) {
+      const [memberData] = await this.db
+        .update(membersData)
+        .set({
+          name: updateMemberDataDTO.name,
+          lastname: updateMemberDataDTO.lastname,
+          profilePicture: updateMemberDataDTO.profilePicture,
+        })
+        .where(eq(membersData.memberId, memberId))
+        .returning();
+
+      console.log('Datos del miembro actualizados:', memberData);
+
+      return memberData;
+    }
+
 }

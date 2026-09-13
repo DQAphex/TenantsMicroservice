@@ -2,13 +2,13 @@ import {
   pgTable,
   uuid,
   varchar,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 
 import { members } from './member.schema';
 
 export const membersData = pgTable('members_data', {
-  userId: uuid('user_id')
-    .notNull(),
+  userId: uuid("user_id").primaryKey().defaultRandom(),
 
   memberId: uuid('member_id')
     .notNull()
