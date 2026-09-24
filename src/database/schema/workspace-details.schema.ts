@@ -20,10 +20,6 @@ export const workspaceDetails = pgTable('workspace_details', {
   capacity: integer('capacity')
     .notNull(),
 
-  createdAt: timestamp('created_at')
-    .defaultNow()
-    .notNull(),
-
   updatedAt: timestamp('updated_at')
     .defaultNow()
     .notNull(),

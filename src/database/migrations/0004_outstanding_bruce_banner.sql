@@ -1,0 +1,1 @@
+ALTER TABLE "tenant_workspaces" DROP COLUMN "capacity";
