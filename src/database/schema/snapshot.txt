@@ -1,0 +1,214 @@
+# project-snapshot
+# Generated: 2026-09-30T03:56:32.421Z
+# Root: C:\Users\diego\Desktop\capstone\tenants\src\database\schema
+
+=== enums.ts ===
+import { pgEnum } from 'drizzle-orm/pg-core';
+
+export const tenantTypeEnum = pgEnum('tenant_type', [
+  'PERSONA_NATURAL',
+  'EMPRESA',
+]);
+
+export type TenantType = (typeof tenantTypeEnum.enumValues)[number];
+
+export const statusEnum = pgEnum('status', [
+  'ACTIVE',
+  'INACTIVE',
+]);
+export type Status = (typeof statusEnum.enumValues)[number];
+
+=== member.schema.ts ===
+import {
+  pgTable,
+  uuid,
+  timestamp,
+} from 'drizzle-orm/pg-core';
+
+import { tenants } from './tenants.schema';
+import { statusEnum } from './enums';
+
+export const members = pgTable('members', {
+  memberId: uuid('member_id')
+    .defaultRandom()
+    .primaryKey(),
+
+  iamUserId: uuid('iam_user_id')
+    .notNull(),
+
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.tenantId),
+
+  createdAt: timestamp('created_at')
+    .defaultNow()
+    .notNull(),
+
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .notNull(),
+
+  status: statusEnum('status')
+    .default('ACTIVE')
+    .notNull(),
+});
+
+=== members-data.schema.ts ===
+import {
+  pgTable,
+  uuid,
+  varchar,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
+
+import { members } from './member.schema';
+
+export const membersData = pgTable('members_data', {
+  userId: uuid("user_id").primaryKey().defaultRandom(),
+
+  memberId: uuid('member_id')
+    .notNull()
+    .references(() => members.memberId),
+
+  name: varchar('name', {
+    length: 45,
+  }).notNull(),
+
+  lastname: varchar('lastname', {
+    length: 45,
+  }).notNull(),
+
+  profilePicture: varchar('profile_picture', {
+    length: 45,
+  }),
+});
+
+=== tenant-workspaces.schema.ts ===
+import {
+  pgTable,
+  uuid,
+  integer,
+  timestamp,
+  varchar
+} from 'drizzle-orm/pg-core';
+import { statusEnum } from './enums';
+import { tenants } from './tenants.schema';
+
+export const tenantWorkspaces = pgTable('tenant_workspaces', {
+  tenantId: uuid('tenant_id')
+    .notNull()
+    .references(() => tenants.tenantId),
+
+  workspaceId: uuid('workspace_id')
+    .defaultRandom()
+    .primaryKey(),
+  
+  workspaceNombre: varchar('workspace_nombre', { length: 100 })
+    .notNull(),
+
+  maxMemberLimitId: uuid('max_member_limit_id'),
+
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .notNull(),
+
+  status: statusEnum('status')
+    .default('ACTIVE')
+    .notNull(),
+  createdAt: timestamp('created_at')
+    .defaultNow()
+    .notNull()
+});
+
+=== tenants.schema.ts ===
+import {
+  pgTable,
+  uuid,
+  varchar,
+  integer,
+  char,
+  timestamp,
+} from 'drizzle-orm/pg-core';
+
+import { tenantTypeEnum, statusEnum } from './enums';
+
+export const tenants = pgTable('tenants', {
+  tenantId: uuid('tenant_id')
+    .defaultRandom()
+    .primaryKey(),
+
+  name: varchar('name', {
+    length: 45,
+  }).notNull(),
+
+  rut: integer('rut')
+    .notNull(),
+
+  dv: char('dv', {
+    length: 1,
+  }).notNull(),
+
+  type: tenantTypeEnum('type')
+    .notNull(),
+
+  createdAt: timestamp('created_at')
+    .defaultNow()
+    .notNull(),
+
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .notNull(),
+
+  status: statusEnum('status')
+    .default('ACTIVE')
+    .notNull(),
+});
+
+=== workspace-details.schema.ts ===
+import {
+  pgTable,
+  uuid,
+  integer,
+  timestamp,
+} from 'drizzle-orm/pg-core';
+
+import { statusEnum } from './enums';
+
+export const workspaceDetails = pgTable('workspace_details', {
+  workspaceDetailsId: uuid('workspace_details_id')
+    .defaultRandom()
+    .primaryKey(),
+
+  workspaceId: uuid('workspace_id')
+    .notNull(),
+  
+  maxMemberLimitId: integer('max_member_limit_id'),
+
+  capacity: integer('capacity')
+    .notNull(),
+
+  updatedAt: timestamp('updated_at')
+    .defaultNow()
+    .notNull(),
+
+  status: statusEnum('status')
+    .default('ACTIVE')
+    .notNull(),
+});
+
+=== workspace-members.schema.ts ===
+import {
+  pgTable,
+  uuid,
+} from 'drizzle-orm/pg-core';
+
+import { members } from './member.schema';
+
+export const workspaceMembers = pgTable('workspace_members', {
+  memberId: uuid('member_id')
+    .notNull()
+    .references(() => members.memberId),
+
+  workspaceId: uuid('workspace_id')
+    .notNull(),
+});
