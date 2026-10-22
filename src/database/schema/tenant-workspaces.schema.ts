@@ -20,7 +20,8 @@ export const tenantWorkspaces = pgTable('tenant_workspaces', {
   workspaceNombre: varchar('workspace_nombre', { length: 100 })
     .notNull(),
 
-  maxMemberLimitId: uuid('max_member_limit_id'),
+  maxMemberLimitId: uuid('max_member_limit_id')
+    .notNull(),
 
   updatedAt: timestamp('updated_at')
     .defaultNow()

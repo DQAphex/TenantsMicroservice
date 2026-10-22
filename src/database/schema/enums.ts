@@ -12,3 +12,10 @@ export const statusEnum = pgEnum('status', [
   'INACTIVE',
 ]);
 export type Status = (typeof statusEnum.enumValues)[number];
+
+export const invitationStatusEnum = pgEnum('invitation_status', [
+  'PENDING',
+  'ACCEPTED',
+  'REJECTED',
+  'EXPIRED',
+]);
