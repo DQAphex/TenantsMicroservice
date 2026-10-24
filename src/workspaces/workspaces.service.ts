@@ -37,6 +37,21 @@ export class WorkspacesService {
     ) {}
 
   async create(createWorkspaceDto: CreateWorkspaceDto) {
+    // El frontend de prueba manda UUIDs de ceros. tenant_id sí tiene FK
+    // hacia tenants; si el registro no existe, Postgres responde 23503.
+    // max_member_limit_id no referencia ninguna tabla, así que no hay
+    // un "límite de miembros" que insertar: se guarda tal cual en el workspace.
+    await this.db
+      .insert(tenants)
+      .values({
+        tenantId: createWorkspaceDto.tenantId,
+        name: 'Tenant genérico',
+        rut: 0,
+        dv: '0',
+        type: 'EMPRESA',
+      })
+      .onConflictDoNothing({ target: tenants.tenantId });
+
     const [workspace] = await this.db
       .insert(tenantWorkspaces)
       .values({

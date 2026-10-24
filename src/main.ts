@@ -5,6 +5,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({ origin: '*' });
+
   const config = new DocumentBuilder()
     .setTitle('Tenant Microservice API')
     .setDescription('API para gestión de tenants, miembros y workspaces')
