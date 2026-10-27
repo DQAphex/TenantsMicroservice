@@ -34,3 +34,5 @@ export const tenantWorkspaces = pgTable('tenant_workspaces', {
     .defaultNow()
     .notNull()
 });
+
+
