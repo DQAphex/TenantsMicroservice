@@ -8,7 +8,12 @@ import {
   Param,
   Delete,
   ParseUUIDPipe,
-  Put
+  Put,
+  Headers,
+  UsePipes,
+  ValidationPipe,
+  HttpCode,
+  HttpStatus,
  } from '@nestjs/common';
 import {
   ApiOperation,
@@ -67,6 +72,29 @@ export class WorkspacesController {
     return this.workspacesService.getMembers(workspaceId);
   }
 
+  @Get("/:workspaceId/invitations")
+  @ApiOperation({
+    summary: 'Listar invitaciones de un workspace',
+    description: 'Devuelve las invitaciones (pendientes, aceptadas y rechazadas) del workspace indicado.',
+  })
+  getWorkspaceInvitations(
+    @Param('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string,
+  ) {
+    return this.workspacesService.getInvitationsByWorkspace(workspaceId);
+  }
+
+  @Delete('/:workspaceId/members/:memberId')
+  @ApiOperation({
+    summary: 'Eliminar un miembro del workspace',
+    description: 'Quita la relación del miembro con el workspace indicado.',
+  })
+  deleteWorkspaceMember(
+    @Param('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string,
+    @Param('memberId', new ParseUUIDPipe({ version: '4' })) memberId: string,
+  ) {
+    return this.workspacesService.deleteWorkspaceMember(workspaceId, memberId);
+  }
+
   @Post("/members")
   addmember(@Body() addMemberDto: AddMemberDto) {
     return this.workspacesService.addMember(addMemberDto);
@@ -93,9 +121,11 @@ export class WorkspacesController {
   }
 
   @Post('invitations')
+  @HttpCode(HttpStatus.CREATED)
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
   @ApiOperation({
     summary: 'Crear una invitación a un workspace',
-    description: 'Crea una invitación para que un miembro se incorpore a un workspace.'
+    description: 'Invita a un usuario por correo al workspace actual. Requiere Authorization: Bearer <token>.'
   })
   @ApiBody({
     type: CreateInvitationDto,
@@ -104,22 +134,37 @@ export class WorkspacesController {
         summary: 'Invitación de ejemplo',
         value: {
           workspaceId: '11111111-1111-4111-8111-111111111111',
-          receiverId: '22222222-2222-4222-8222-222222222222',
-          senderId: '33333333-3333-4333-8333-333333333333',
-          expirationDate: '2026-11-01T23:59:59.000Z'
+          email: 'usuario@empresa.com'
         }
       }
     }
   })
   createInvitation(
-    @Body() dto: CreateInvitationDto
+    @Body() dto: CreateInvitationDto,
+    @Headers('authorization') authorization?: string,
   ) {
-    return this.workspacesService.createInvitationLink(
+    return this.workspacesService.createInvitationByEmail(
       dto.workspaceId,
-      dto.receiverId,
-      dto.senderId,
-      new Date(dto.expirationDate)
+      dto.email,
+      authorization,
     );
+  }
+
+  @Delete('invitations/:invitationId')
+  @ApiOperation({
+    summary: 'Cancelar una invitación',
+    description: 'Elimina una invitación pendiente del workspace.',
+  })
+  @ApiParam({
+    name: 'invitationId',
+    description: 'UUID de la invitación',
+    example: '44444444-4444-4444-8444-444444444444',
+  })
+  cancelInvitation(
+    @Param('invitationId', new ParseUUIDPipe({ version: '4' }))
+    invitationId: string,
+  ) {
+    return this.workspacesService.cancelInvitation(invitationId);
   }
 
   @Patch('invitations/:invitationId/respond')

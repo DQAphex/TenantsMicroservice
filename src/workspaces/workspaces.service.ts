@@ -6,6 +6,8 @@ import {
   ForbiddenException
 } from '@nestjs/common';
 
+import { randomUUID } from 'crypto';
+
 import {
   count,
   asc,
@@ -13,7 +15,8 @@ import {
   eq,
   SQL,
   and,
-  gt
+  gt,
+  or,
 } from 'drizzle-orm';
 
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
@@ -71,6 +74,7 @@ export class WorkspacesService {
     const data = await this.db
       .select()
       .from(tenantWorkspaces)
+      .where(eq(tenantWorkspaces.status, 'ACTIVE'))
       .orderBy(desc(tenantWorkspaces.createdAt))
       .limit(limit)
       .offset(offset);
@@ -79,7 +83,8 @@ export class WorkspacesService {
       .select({
         total: count(),
       })
-      .from(tenantWorkspaces);
+      .from(tenantWorkspaces)
+      .where(eq(tenantWorkspaces.status, 'ACTIVE'));
 
     return {
       data,
@@ -119,17 +124,26 @@ export class WorkspacesService {
   }
 
   async remove(id: string) {
-    const existe = await this.findOne(id);
-    const [ACTIVE, INACTIVE] = statusEnum.enumValues;
-    const newStatus = 
-      existe.status === ACTIVE ? INACTIVE : ACTIVE;
-    const data = await this.db
-      .update(tenantWorkspaces)
-      .set({status : newStatus})
-      .where(eq(tenantWorkspaces.tenantId, id))
-      .returning()
-    const mesage = `Tenant con id ${id} eliminado correctamente`
-    return {mesage, data};
+    await this.findOne(id);
+
+    await this.db
+      .delete(workspaceInvitations)
+      .where(eq(workspaceInvitations.workspaceId, id));
+
+    await this.db
+      .delete(workspaceMembers)
+      .where(eq(workspaceMembers.workspaceId, id));
+
+    const [data] = await this.db
+      .delete(tenantWorkspaces)
+      .where(eq(tenantWorkspaces.workspaceId, id))
+      .returning();
+
+    if (!data) {
+      throw new NotFoundException(`Workspace con id ${id} no encontrado`);
+    }
+
+    return { message: 'Workspace eliminado correctamente', data };
   }
 
   async addMember(addMemberDto: AddMemberDto) {
@@ -219,6 +233,35 @@ export class WorkspacesService {
     return membersList;
   }
 
+  async getInvitationsByWorkspace(workspaceId: string) {
+    return this.db
+      .select({
+        invitationId: workspaceInvitations.invitationId,
+        receiverId: workspaceInvitations.receiverId,
+        senderId: workspaceInvitations.senderId,
+        workspaceId: workspaceInvitations.workspaceId,
+        createdAt: workspaceInvitations.createdAt,
+        expirationDate: workspaceInvitations.expirationDate,
+        status: workspaceInvitations.status,
+        invitedEmail: workspaceInvitations.invitedEmail,
+        email: workspaceInvitations.invitedEmail,
+        name: membersData.name,
+        lastname: membersData.lastname,
+        iamUserId: members.iamUserId,
+      })
+      .from(workspaceInvitations)
+      .leftJoin(
+        members,
+        eq(workspaceInvitations.receiverId, members.memberId),
+      )
+      .leftJoin(
+        membersData,
+        eq(membersData.memberId, members.memberId),
+      )
+      .where(eq(workspaceInvitations.workspaceId, workspaceId))
+      .orderBy(desc(workspaceInvitations.createdAt));
+  }
+
   async removeMemberWorkspace(addMemberDto: AddMemberDto) {
     const { workspaceId, memberId } = addMemberDto;
 
@@ -262,11 +305,207 @@ export class WorkspacesService {
     };
   }
 
+  private getIamUserIdFromAuthorization(authorization?: string): string | null {
+    if (!authorization?.toLowerCase().startsWith('bearer ')) {
+      return null;
+    }
+
+    const token = authorization.slice(7).trim();
+    const segment = token.split('.')[1];
+    if (!segment) return null;
+
+    try {
+      const json = Buffer.from(segment, 'base64url').toString('utf8');
+      const payload = JSON.parse(json) as { id?: string; sub?: string };
+      return payload.id ?? payload.sub ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async findIamUserByEmail(
+    email: string,
+    authorization?: string,
+  ): Promise<{ id: string; email?: string } | null> {
+    const iamUrl = process.env.IAM_URL ?? 'http://localhost:4002';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (authorization) {
+      headers.Authorization = authorization;
+    }
+
+    try {
+      const response = await fetch(`${iamUrl}/iam/users`, { headers });
+      if (!response.ok) {
+        return null;
+      }
+
+      const body = (await response.json()) as
+        | { id?: string; email?: string }[]
+        | { data?: { id?: string; email?: string }[] };
+
+      const users = Array.isArray(body) ? body : (body.data ?? []);
+      const normalized = email.trim().toLowerCase();
+      const match = users.find(
+        (user) =>
+          typeof user.id === 'string' &&
+          (user.email ?? '').trim().toLowerCase() === normalized,
+      );
+
+      return match?.id ? { id: match.id, email: match.email } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async findOrCreateMember(iamUserId: string, tenantId: string) {
+    const [existing] = await this.db
+      .select()
+      .from(members)
+      .where(eq(members.iamUserId, iamUserId))
+      .limit(1);
+
+    if (existing) return existing;
+
+    const [created] = await this.db
+      .insert(members)
+      .values({ iamUserId, tenantId })
+      .returning();
+
+    return created;
+  }
+
+  private async findOrCreatePendingInvitee(email: string, tenantId: string) {
+    const [existingInvitation] = await this.db
+      .select()
+      .from(workspaceInvitations)
+      .where(eq(workspaceInvitations.invitedEmail, email))
+      .limit(1);
+
+    if (existingInvitation?.receiverId) {
+      const [existingMember] = await this.db
+        .select()
+        .from(members)
+        .where(eq(members.memberId, existingInvitation.receiverId))
+        .limit(1);
+      if (existingMember) return existingMember;
+    }
+
+    const [created] = await this.db
+      .insert(members)
+      .values({
+        iamUserId: randomUUID(),
+        tenantId,
+      })
+      .returning();
+
+    const localPart = email.split('@')[0]?.slice(0, 45) || 'Invitado';
+    await this.db.insert(membersData).values({
+      memberId: created.memberId,
+      name: localPart,
+      lastname: 'Invitado',
+    });
+
+    return created;
+  }
+
+  private async ensureActiveWorkspaceMember(
+    workspaceId: string,
+    memberId: string,
+  ) {
+    const [relation] = await this.db
+      .select()
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.memberId, memberId),
+        ),
+      )
+      .limit(1);
+
+    if (!relation) {
+      await this.db.insert(workspaceMembers).values({
+        workspaceId,
+        memberId,
+        status: 'ACTIVE',
+      });
+      return;
+    }
+
+    if (relation.status !== 'ACTIVE') {
+      await this.db
+        .update(workspaceMembers)
+        .set({ status: 'ACTIVE' })
+        .where(
+          and(
+            eq(workspaceMembers.workspaceId, workspaceId),
+            eq(workspaceMembers.memberId, memberId),
+          ),
+        );
+    }
+  }
+
+  async createInvitationByEmail(
+    workspaceId: string,
+    email: string,
+    authorization?: string,
+  ) {
+    const normalizedEmail = email.trim().toLowerCase();
+    const iamUser = await this.findIamUserByEmail(
+      normalizedEmail,
+      authorization,
+    );
+
+    const senderIamId = this.getIamUserIdFromAuthorization(authorization);
+    if (!senderIamId) {
+      throw new ForbiddenException(
+        'No hay una sesión activa. Inicia sesión de nuevo.',
+      );
+    }
+
+    const [workspace] = await this.db
+      .select()
+      .from(tenantWorkspaces)
+      .where(eq(tenantWorkspaces.workspaceId, workspaceId))
+      .limit(1);
+
+    if (!workspace) {
+      throw new NotFoundException(`Workspace ${workspaceId} no encontrado`);
+    }
+
+    const receiver = iamUser?.id
+      ? await this.findOrCreateMember(iamUser.id, workspace.tenantId)
+      : await this.findOrCreatePendingInvitee(
+          normalizedEmail,
+          workspace.tenantId,
+        );
+
+    const sender = await this.findOrCreateMember(
+      senderIamId,
+      workspace.tenantId,
+    );
+    await this.ensureActiveWorkspaceMember(workspaceId, sender.memberId);
+
+    const expirationDate = new Date();
+    expirationDate.setDate(expirationDate.getDate() + 7);
+
+    return this.createInvitationLink(
+      workspaceId,
+      receiver.memberId,
+      sender.memberId,
+      expirationDate,
+      normalizedEmail,
+    );
+  }
+
   async createInvitationLink(
     workspaceId: string,
     receiverId: string,
     senderId: string,
-    expirationDate: Date
+    expirationDate: Date,
+    invitedEmail?: string,
   ) {
     const now = new Date();
 
@@ -341,15 +580,22 @@ export class WorkspacesService {
         );
       }
 
+      const invitationMatch = invitedEmail
+        ? or(
+            eq(workspaceInvitations.receiverId, receiverId),
+            eq(workspaceInvitations.invitedEmail, invitedEmail),
+          )
+        : eq(workspaceInvitations.receiverId, receiverId);
+
       const [existingInvitation] = await tx
         .select()
         .from(workspaceInvitations)
         .where(
           and(
             eq(workspaceInvitations.workspaceId, workspaceId),
-            eq(workspaceInvitations.receiverId, receiverId),
             eq(workspaceInvitations.status, 'PENDING'),
-            gt(workspaceInvitations.expirationDate, now)
+            gt(workspaceInvitations.expirationDate, now),
+            invitationMatch,
           )
         )
         .limit(1);
@@ -366,6 +612,7 @@ export class WorkspacesService {
           workspaceId,
           receiverId,
           senderId,
+          invitedEmail: invitedEmail ?? null,
           expirationDate,
           status: 'PENDING',
           statusUpdatedAt: now
@@ -591,5 +838,55 @@ async getInvitationById(invitationId: string) {
   }
 
   return invitation;
+  }
+
+  async cancelInvitation(invitationId: string) {
+    const [invitation] = await this.db
+      .select()
+      .from(workspaceInvitations)
+      .where(eq(workspaceInvitations.invitationId, invitationId))
+      .limit(1);
+
+    if (!invitation) {
+      throw new NotFoundException(
+        `Invitación ${invitationId} no encontrada`,
+      );
+    }
+
+    await this.db
+      .delete(workspaceInvitations)
+      .where(eq(workspaceInvitations.invitationId, invitationId));
+
+    return { message: 'Invitación cancelada correctamente' };
+  }
+
+  async deleteWorkspaceMember(workspaceId: string, memberId: string) {
+    const [workspaceMember] = await this.db
+      .select()
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.memberId, memberId),
+        ),
+      )
+      .limit(1);
+
+    if (!workspaceMember) {
+      throw new NotFoundException(
+        `No existe la relación entre el miembro ${memberId} y el workspace ${workspaceId}`,
+      );
+    }
+
+    await this.db
+      .delete(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.memberId, memberId),
+        ),
+      );
+
+    return { message: 'Miembro eliminado del workspace' };
   }
 }

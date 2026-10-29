@@ -2,6 +2,7 @@ import {
   pgTable,
   uuid,
   timestamp,
+  varchar,
 } from 'drizzle-orm/pg-core';
 
 import { members } from './member.schema';
@@ -24,6 +25,8 @@ export const workspaceInvitations = pgTable('workspace_invitation', {
   workspaceId: uuid('workspace_id')
     .notNull()
     .references(() => tenantWorkspaces.workspaceId),
+
+  invitedEmail: varchar('invited_email', { length: 255 }),
 
   createdAt: timestamp('created_at')
       .defaultNow()
