@@ -23,7 +23,6 @@ import { CreateWorkspaceDto } from './dto/create-workspace.dto';
 import { UpdateWorkspaceDto } from './dto/update-workspace.dto';
 import { PaginationDto } from '../global/paginacion.dto';
 import { DRIZZLE } from '../database/database.provider';
-import { Status,statusEnum } from '../database/schema/enums';
 import { tenantWorkspaces } from '../database/schema/tenant-workspaces.schema';
 import { AddMemberDto } from './dto/add-member.dto';
 import { workspaceMembers } from '../database/schema/workspace-members.schema';
@@ -225,15 +224,35 @@ export class WorkspacesService {
   }
 
 
-  async getMembers(workspaceId: string) {
-    const membersList = await this.db
-      .select()
+  async getMembers(workspaceId: string, tenantId: string) {
+    return this.db
+      .select({
+        memberId: workspaceMembers.memberId,
+        workspaceId: workspaceMembers.workspaceId,
+        createdAt: workspaceMembers.createdAt,
+        status: workspaceMembers.status,
+        tenantId: tenantWorkspaces.tenantId,
+      })
       .from(workspaceMembers)
-      .where(eq(workspaceMembers.workspaceId, workspaceId));
-    return membersList;
+      .innerJoin(
+        tenantWorkspaces,
+        eq(workspaceMembers.workspaceId, tenantWorkspaces.workspaceId),
+      )
+      .innerJoin(
+        members,
+        eq(workspaceMembers.memberId, members.memberId),
+      )
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.status, 'ACTIVE'),
+          eq(tenantWorkspaces.tenantId, tenantId),
+          eq(members.tenantId, tenantId),
+        ),
+      );
   }
 
-  async getInvitationsByWorkspace(workspaceId: string) {
+  async getInvitationsByWorkspace(workspaceId: string, tenantId: string) {
     return this.db
       .select({
         invitationId: workspaceInvitations.invitationId,
@@ -248,61 +267,36 @@ export class WorkspacesService {
         name: membersData.name,
         lastname: membersData.lastname,
         iamUserId: members.iamUserId,
+        tenantId: tenantWorkspaces.tenantId,
       })
       .from(workspaceInvitations)
+      .innerJoin(
+        tenantWorkspaces,
+        eq(workspaceInvitations.workspaceId, tenantWorkspaces.workspaceId),
+      )
       .leftJoin(
         members,
-        eq(workspaceInvitations.receiverId, members.memberId),
+        and(
+          eq(workspaceInvitations.receiverId, members.memberId),
+          eq(members.tenantId, tenantId),
+        ),
       )
       .leftJoin(
         membersData,
         eq(membersData.memberId, members.memberId),
       )
-      .where(eq(workspaceInvitations.workspaceId, workspaceId))
+      .where(
+        and(
+          eq(workspaceInvitations.workspaceId, workspaceId),
+          eq(tenantWorkspaces.tenantId, tenantId),
+        ),
+      )
       .orderBy(desc(workspaceInvitations.createdAt));
   }
 
   async removeMemberWorkspace(addMemberDto: AddMemberDto) {
     const { workspaceId, memberId } = addMemberDto;
-
-    const [workspaceMember] = await this.db
-      .select()
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          eq(workspaceMembers.memberId, memberId)
-        )
-      );
-
-    if (!workspaceMember) {
-      throw new NotFoundException(
-        `No existe la relación entre el miembro ${memberId} y el workspace ${workspaceId}`
-      );
-    }
-
-    const [ACTIVE, INACTIVE] = statusEnum.enumValues;
-
-    const newStatus =
-      workspaceMember.status === ACTIVE ? INACTIVE : ACTIVE;
-
-    const [updatedRelation] = await this.db
-      .update(workspaceMembers)
-      .set({
-        status: newStatus
-      })
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          eq(workspaceMembers.memberId, memberId)
-        )
-      )
-      .returning();
-
-    return {
-      message: `Relación actualizada a ${newStatus}`,
-      data: updatedRelation
-    };
+    return this.deleteWorkspaceMember(workspaceId, memberId);
   }
 
   private getIamUserIdFromAuthorization(authorization?: string): string | null {
@@ -363,7 +357,12 @@ export class WorkspacesService {
     const [existing] = await this.db
       .select()
       .from(members)
-      .where(eq(members.iamUserId, iamUserId))
+      .where(
+        and(
+          eq(members.iamUserId, iamUserId),
+          eq(members.tenantId, tenantId),
+        ),
+      )
       .limit(1);
 
     if (existing) return existing;
@@ -376,18 +375,39 @@ export class WorkspacesService {
     return created;
   }
 
-  private async findOrCreatePendingInvitee(email: string, tenantId: string) {
+  private async findOrCreatePendingInvitee(
+    email: string,
+    tenantId: string,
+    workspaceId: string,
+  ) {
     const [existingInvitation] = await this.db
-      .select()
+      .select({
+        receiverId: workspaceInvitations.receiverId,
+      })
       .from(workspaceInvitations)
-      .where(eq(workspaceInvitations.invitedEmail, email))
+      .innerJoin(
+        tenantWorkspaces,
+        eq(workspaceInvitations.workspaceId, tenantWorkspaces.workspaceId),
+      )
+      .where(
+        and(
+          eq(workspaceInvitations.invitedEmail, email),
+          eq(workspaceInvitations.workspaceId, workspaceId),
+          eq(tenantWorkspaces.tenantId, tenantId),
+        ),
+      )
       .limit(1);
 
     if (existingInvitation?.receiverId) {
       const [existingMember] = await this.db
         .select()
         .from(members)
-        .where(eq(members.memberId, existingInvitation.receiverId))
+        .where(
+          and(
+            eq(members.memberId, existingInvitation.receiverId),
+            eq(members.tenantId, tenantId),
+          ),
+        )
         .limit(1);
       if (existingMember) return existingMember;
     }
@@ -480,6 +500,7 @@ export class WorkspacesService {
       : await this.findOrCreatePendingInvitee(
           normalizedEmail,
           workspace.tenantId,
+          workspaceId,
         );
 
     const sender = await this.findOrCreateMember(
@@ -853,28 +874,14 @@ async getInvitationById(invitationId: string) {
       );
     }
 
-    await this.db
+    const deletedInvitations = await this.db
       .delete(workspaceInvitations)
-      .where(eq(workspaceInvitations.invitationId, invitationId));
+      .where(eq(workspaceInvitations.invitationId, invitationId))
+      .returning({ invitationId: workspaceInvitations.invitationId });
 
-    return { message: 'Invitación cancelada correctamente' };
-  }
-
-  async deleteWorkspaceMember(workspaceId: string, memberId: string) {
-    const [workspaceMember] = await this.db
-      .select()
-      .from(workspaceMembers)
-      .where(
-        and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          eq(workspaceMembers.memberId, memberId),
-        ),
-      )
-      .limit(1);
-
-    if (!workspaceMember) {
-      throw new NotFoundException(
-        `No existe la relación entre el miembro ${memberId} y el workspace ${workspaceId}`,
+    if (deletedInvitations.length === 0) {
+      throw new BadRequestException(
+        'No se pudo eliminar la invitación en la base de datos',
       );
     }
 
@@ -882,11 +889,75 @@ async getInvitationById(invitationId: string) {
       .delete(workspaceMembers)
       .where(
         and(
-          eq(workspaceMembers.workspaceId, workspaceId),
-          eq(workspaceMembers.memberId, memberId),
+          eq(workspaceMembers.workspaceId, invitation.workspaceId),
+          eq(workspaceMembers.memberId, invitation.receiverId),
         ),
       );
 
-    return { message: 'Miembro eliminado del workspace' };
+    await this.db
+      .delete(workspaceInvitations)
+      .where(
+        and(
+          eq(workspaceInvitations.workspaceId, invitation.workspaceId),
+          eq(workspaceInvitations.receiverId, invitation.receiverId),
+        ),
+      );
+
+    return { message: 'Invitación cancelada correctamente', deleted: true };
+  }
+
+  async deleteWorkspaceMember(workspaceId: string, memberId: string) {
+    const membershipWhere = and(
+      eq(workspaceMembers.workspaceId, workspaceId),
+      eq(workspaceMembers.memberId, memberId),
+    );
+    const invitationWhere = and(
+      eq(workspaceInvitations.workspaceId, workspaceId),
+      eq(workspaceInvitations.receiverId, memberId),
+    );
+
+    const [existingMember] = await this.db
+      .select({ memberId: workspaceMembers.memberId })
+      .from(workspaceMembers)
+      .where(membershipWhere)
+      .limit(1);
+
+    const [existingInvitation] = await this.db
+      .select({ invitationId: workspaceInvitations.invitationId })
+      .from(workspaceInvitations)
+      .where(invitationWhere)
+      .limit(1);
+
+    if (!existingMember && !existingInvitation) {
+      throw new NotFoundException(
+        `No existe la relación entre el miembro ${memberId} y el workspace ${workspaceId}`,
+      );
+    }
+
+    await this.db.delete(workspaceMembers).where(membershipWhere);
+    await this.db.delete(workspaceInvitations).where(invitationWhere);
+
+    const [remainingMember] = await this.db
+      .select({ memberId: workspaceMembers.memberId })
+      .from(workspaceMembers)
+      .where(membershipWhere)
+      .limit(1);
+
+    const [remainingInvitation] = await this.db
+      .select({ invitationId: workspaceInvitations.invitationId })
+      .from(workspaceInvitations)
+      .where(invitationWhere)
+      .limit(1);
+
+    if (remainingMember || remainingInvitation) {
+      throw new BadRequestException(
+        'No se pudo eliminar el miembro en la base de datos',
+      );
+    }
+
+    return {
+      message: 'Miembro eliminado del workspace',
+      deleted: true,
+    };
   }
 }

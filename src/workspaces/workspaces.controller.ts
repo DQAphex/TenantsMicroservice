@@ -67,26 +67,41 @@ export class WorkspacesController {
     return this.workspacesService.getAllMembers();
   }
 
-  @Get("/:workspaceId/members")
-  getMembers(@Param('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string) {
-    return this.workspacesService.getMembers(workspaceId);
+  @Get("/:tenantId/members")
+  @ApiQuery({
+    name: 'workspaceId',
+    required: true,
+    description: 'UUID del workspace cuyos miembros se listan.',
+  })
+  getMembers(
+    @Param('tenantId', new ParseUUIDPipe({ version: '4' })) tenantId: string,
+    @Query('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string,
+  ) {
+    return this.workspacesService.getMembers(workspaceId, tenantId);
   }
 
-  @Get("/:workspaceId/invitations")
+  @Get("/:tenantId/invitations")
   @ApiOperation({
     summary: 'Listar invitaciones de un workspace',
-    description: 'Devuelve las invitaciones (pendientes, aceptadas y rechazadas) del workspace indicado.',
+    description: 'Devuelve las invitaciones del workspace indicado, filtradas por tenant.',
+  })
+  @ApiQuery({
+    name: 'workspaceId',
+    required: true,
+    description: 'UUID del workspace cuyas invitaciones se listan.',
   })
   getWorkspaceInvitations(
-    @Param('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string,
+    @Param('tenantId', new ParseUUIDPipe({ version: '4' })) tenantId: string,
+    @Query('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string,
   ) {
-    return this.workspacesService.getInvitationsByWorkspace(workspaceId);
+    return this.workspacesService.getInvitationsByWorkspace(workspaceId, tenantId);
   }
 
   @Delete('/:workspaceId/members/:memberId')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Eliminar un miembro del workspace',
-    description: 'Quita la relación del miembro con el workspace indicado.',
+    description: 'Borra de forma permanente la relación del miembro con el workspace.',
   })
   deleteWorkspaceMember(
     @Param('workspaceId', new ParseUUIDPipe({ version: '4' })) workspaceId: string,
@@ -151,9 +166,10 @@ export class WorkspacesController {
   }
 
   @Delete('invitations/:invitationId')
+  @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Cancelar una invitación',
-    description: 'Elimina una invitación pendiente del workspace.',
+    description: 'Elimina de forma permanente una invitación pendiente del workspace.',
   })
   @ApiParam({
     name: 'invitationId',
